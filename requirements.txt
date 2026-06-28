@@ -1,3 +1,6 @@
+# CUDA 11.8 PyTorch wheels are hosted on PyTorch's index, not PyPI.
+--extra-index-url https://download.pytorch.org/whl/cu118
+
 accelerate==1.13.0
 annotated-doc==0.0.4
 annotated-types==0.7.0

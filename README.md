@@ -36,7 +36,9 @@ setup_env.bat
 ```
 
 > [!NOTE]
-> GPU users on Windows will use the fully-pinned `requirements.txt` which includes CUDA/cuDNN packages proven to work on the MX lineup NVIDIA GPUs.
+> When an NVIDIA GPU is detected, setup installs the fully-pinned `requirements.txt`, which pulls CUDA-enabled PyTorch (`+cu118`) from [PyTorch's wheel index](https://download.pytorch.org/whl/cu118). This stack was validated on Windows with MX-series GPUs; Linux GPU installs use the same requirements file.
+>
+> Python **3.10–3.12** is recommended for the pinned GPU stack. If you hit compatibility errors on 3.13, recreate the venv with an older interpreter (e.g. `python3.12 -m venv venv`).
 
 ## Usage
 
