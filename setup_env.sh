@@ -8,24 +8,14 @@ source venv/bin/activate
 echo "Updating pip..."
 pip install --upgrade pip
 
-echo "Installing Docling and required packages..."
-# Install docling first
-pip install docling
-
-# Install onnxruntime-gpu specifically to ensure GPU support
-pip install onnxruntime-gpu
-
-# Install verification dependencies
-pip install python-docx pandas
+# Auto-detect GPU availability
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "NVIDIA GPU detected — installing GPU dependencies..."
+    pip install -r requirements.txt
+else
+    echo "No NVIDIA GPU detected — installing CPU-only dependencies..."
+    pip install -r requirements-cpu.txt
+fi
 
 echo "Environment setup complete."
-
-echo "Starting document conversion..."
-
-python convert_doc.py
-
-echo "Start integrity verification..."
-
-python verify_integrity.py
-
-
+echo "Run: ./convert.sh <your_document>"

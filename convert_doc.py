@@ -1,9 +1,10 @@
 import os
 import sys
 import re
+import argparse
 import unicodedata
 from pathlib import Path
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption, PowerpointFormatOption
 from docling.datamodel.pipeline_options import PdfPipelineOptions, CodeFormulaVlmOptions
 from docling.datamodel.base_models import InputFormat
 
@@ -105,45 +106,79 @@ def fallback_unicode_math(text):
                 
     return '\n'.join(new_lines)
 
+FORMAT_MAP = {
+    '.pdf': InputFormat.PDF,
+    '.docx': InputFormat.DOCX,
+    '.pptx': InputFormat.PPTX,
+}
+
+def detect_device():
+    """Try CUDA, fall back to CPU."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
+
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python convert_doc.py <input_document>")
+    parser = argparse.ArgumentParser(description="Convert documents to Markdown with images.")
+    parser.add_argument("input_document", help="Path to the input document (PDF, DOCX, PPTX)")
+    parser.add_argument("--output-dir", default="output", help="Directory to save the output (default: output/)")
+    parser.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto", help="Device to use for PDF conversion (default: auto)")
+    args = parser.parse_args()
+
+    input_path = Path(args.input_document)
+    if not input_path.exists():
+        print(f"Error: Input document '{args.input_document}' not found.")
         sys.exit(1)
-        
-    input_doc = sys.argv[1]
-    input_path = Path(input_doc)
+
+    ext = input_path.suffix.lower()
+    if ext not in FORMAT_MAP:
+        print(f"Error: Unsupported format '{ext}'. Supported formats: {', '.join(FORMAT_MAP.keys())}")
+        sys.exit(1)
+
     doc_name = input_path.stem
-    
-    output_dir = Path(doc_name)
+    output_dir = Path(args.output_dir) / doc_name
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_md = output_dir / f"{doc_name}.md"
     image_dir = output_dir / "images"
     image_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Initializing conversion for {input_doc}...")
+    input_format = FORMAT_MAP[ext]
+    device = detect_device() if args.device == "auto" else args.device
+
+    print(f"Initializing conversion for {args.input_document} (Format: {input_format.name})...")
     
-    # Configure CodeFormulaV2 preset and custom scale
-    code_formula_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
-    code_formula_options.scale = 3.0  # Increased for higher-resolution crops
+    if input_format == InputFormat.PDF:
+        print(f"Using device: {device} for PDF processing")
+        # Configure CodeFormulaV2 preset and custom scale
+        code_formula_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
+        code_formula_options.scale = 3.0  # Increased for higher-resolution crops
 
-    # Configure Pipeline Options for PDF
-    pipeline_options = PdfPipelineOptions()
-    pipeline_options.accelerator_options.device = "cuda"  # Use NVIDIA GPU
-    pipeline_options.generate_picture_images = True
-    pipeline_options.images_scale = 2.0  # Overall pipeline scale
-    pipeline_options.do_formula_enrichment = True
-    pipeline_options.code_formula_options = code_formula_options
+        # Configure Pipeline Options for PDF
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.accelerator_options.device = device
+        pipeline_options.generate_picture_images = True
+        pipeline_options.images_scale = 2.0  # Overall pipeline scale
+        pipeline_options.do_formula_enrichment = True
+        pipeline_options.code_formula_options = code_formula_options
 
-    # Initialize Converter
-    converter = DocumentConverter(
-        allowed_formats=[InputFormat.PDF],
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-    )
+        converter = DocumentConverter(
+            allowed_formats=[InputFormat.PDF],
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+        )
+    else:
+        # For DOCX and PPTX, no GPU pipeline is used/needed in the same way
+        converter = DocumentConverter(
+            allowed_formats=[input_format]
+        )
     
     # Convert
-    print("Converting document (monitoring GPU activity via nvidia-smi is recommended)...")
-    result = converter.convert(input_doc)
+    print("Converting document...")
+    result = converter.convert(input_path)
     
     from docling_core.types.doc.base import ImageRefMode
     
@@ -171,7 +206,8 @@ def main():
     print(f"\nConversion Summary:")
     print(f"- Output File: {output_md}")
     print(f"- Image Directory: {image_dir}")
-    print(f"- GPU Utilization: Enabled (CUDA)")
+    if input_format == InputFormat.PDF:
+        print(f"- GPU Utilization: {'Enabled (CUDA)' if device == 'cuda' else 'Disabled (CPU)'}")
 
 if __name__ == "__main__":
     main()
