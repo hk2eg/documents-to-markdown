@@ -72,14 +72,23 @@ You have three ways to run the conversion:
 ### CLI Options (for advanced use)
 ```bash
 # You can also run the Python script directly if the venv is activated
-python convert_doc.py <input_document> [--output-dir DIR] [--device auto|cpu|cuda] [--memory-profile auto|low|high]
-python convert_doc.py --batch [--output-dir DIR] [--device auto|cpu|cuda] [--memory-profile auto|low|high]
+python convert_doc.py <input_document> [--output-dir DIR] [--device auto|cpu|cuda] [--gpu-profile auto|low|high] [--memory-profile auto|low|high] [--pdf-chunk-size N]
+python convert_doc.py --batch [--output-dir DIR] [--device auto|cpu|cuda] [--gpu-profile auto|low|high] [--memory-profile auto|low|high] [--pdf-chunk-size N]
 ```
 
-`--memory-profile` controls GPU memory tuning for PDF conversion:
-- **`auto`** (default): uses the **low** profile when CUDA VRAM is 4 GiB or less; otherwise **high**
-- **`low`**: smaller page/element batches, lower image scale, disabled torch compile — keeps GPU + formula enrichment but is slower
+Two independent tuning profiles for PDF conversion:
+
+**`--gpu-profile`** — VRAM tuning for model inference:
+- **`auto`** (default): **low** when CUDA VRAM is 4 GiB or less; otherwise **high**
+- **`low`**: smaller model batches, lower image scale, disabled torch compile — keeps GPU + formula enrichment but is slower
 - **`high`**: maximum quality settings for GPUs with sufficient VRAM
+
+**`--memory-profile`** — host RAM tuning / PDF chunking:
+- **`auto`** (default): **low** when system RAM is 8 GiB or less; otherwise **high**
+- **`low`**: converts large PDFs in page chunks (default 5 pages/chunk) and stitches results — avoids out-of-memory on small-RAM machines while keeping GPU + formula enrichment
+- **`high`**: single-pass conversion (no chunking)
+
+**`--pdf-chunk-size`** — override pages per chunk (`0` disables; default follows memory profile: 5 when low, off when high)
 
 ## Output Structure
 

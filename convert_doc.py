@@ -1,8 +1,11 @@
 import os
 
 # Must be set before docling/torch are imported (docling loads torch at import time).
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+# expandable_segments is not supported on Windows CUDA builds.
+if os.name != "nt":
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+import gc
 import sys
 import re
 import argparse
@@ -138,8 +141,18 @@ def detect_gpu_vram_gib():
     return None
 
 
-def resolve_memory_profile(requested: str, device: str) -> str:
-    """Resolve auto/low/high memory profile from CLI and hardware."""
+def detect_system_ram_gib():
+    """Return total system RAM in GiB, or None if unavailable."""
+    try:
+        import psutil
+        return psutil.virtual_memory().total / (1024**3)
+    except Exception:
+        pass
+    return None
+
+
+def resolve_gpu_profile(requested: str, device: str) -> str:
+    """Resolve auto/low/high GPU profile from CLI and VRAM."""
     if requested != "auto":
         return requested
     vram = detect_gpu_vram_gib()
@@ -148,21 +161,44 @@ def resolve_memory_profile(requested: str, device: str) -> str:
     return "high"
 
 
-def apply_low_memory_settings():
+def resolve_memory_profile(requested: str) -> str:
+    """Resolve auto/low/high host memory profile from CLI and system RAM."""
+    if requested != "auto":
+        return requested
+    ram = detect_system_ram_gib()
+    if ram is not None and ram <= 8.0:
+        return "low"
+    return "high"
+
+
+def resolve_pdf_chunk_size(requested, memory_profile: str) -> int:
+    """Resolve pages per chunk; 0 disables chunking."""
+    if requested is not None:
+        return max(0, requested)
+    return 5 if memory_profile == "low" else 0
+
+
+def apply_low_gpu_settings():
     """Apply global Docling settings for low-VRAM GPU conversion."""
     from docling.datamodel.settings import settings
 
-    settings.perf.page_batch_size = 1
     settings.perf.elements_batch_size = 1
     settings.inference.compile_torch_models = False
+    configure_code_formula_vlm_batch()
 
 
-def configure_code_formula_vlm_batch(profile: str):
-    """Shrink CodeFormula VLM batch size for low-memory GPUs."""
-    if profile == "low":
-        from docling.models.stages.code_formula.code_formula_vlm_model import CodeFormulaVlmModel
+def apply_low_memory_settings():
+    """Apply global Docling settings for low host-RAM conversion."""
+    from docling.datamodel.settings import settings
 
-        CodeFormulaVlmModel.elements_batch_size = 1
+    settings.perf.page_batch_size = 1
+
+
+def configure_code_formula_vlm_batch():
+    """Shrink CodeFormula VLM batch size for low-VRAM GPUs."""
+    from docling.models.stages.code_formula.code_formula_vlm_model import CodeFormulaVlmModel
+
+    CodeFormulaVlmModel.elements_batch_size = 1
 
 
 def release_cuda_memory():
@@ -175,8 +211,23 @@ def release_cuda_memory():
         pass
 
 
-def build_pdf_pipeline_options(device: str, profile: str) -> PdfPipelineOptions:
-    """Build PdfPipelineOptions tuned for the requested memory profile."""
+def get_pdf_page_count(input_path: Path):
+    """Return total page count for a PDF, or None on failure."""
+    try:
+        import pypdfium2 as pdfium
+        pdf = pdfium.PdfDocument(str(input_path))
+        try:
+            return len(pdf)
+        finally:
+            pdf.close()
+    except Exception:
+        return None
+
+
+def build_pdf_pipeline_options(
+    device: str, gpu_profile: str, memory_profile: str
+) -> PdfPipelineOptions:
+    """Build PdfPipelineOptions tuned for GPU and host memory profiles."""
     pipeline_options = PdfPipelineOptions()
     pipeline_options.accelerator_options.device = device
     pipeline_options.generate_picture_images = True
@@ -184,35 +235,78 @@ def build_pdf_pipeline_options(device: str, profile: str) -> PdfPipelineOptions:
 
     code_formula_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
 
-    if profile == "low":
+    if gpu_profile == "low":
         pipeline_options.images_scale = 1.0
         pipeline_options.accelerator_options.num_threads = 2
         pipeline_options.ocr_batch_size = 1
         pipeline_options.layout_batch_size = 1
         pipeline_options.table_batch_size = 1
-        pipeline_options.queue_max_size = 10
         pipeline_options.table_structure_options.mode = TableFormerMode.FAST
         code_formula_options.max_size = 768
     else:
         pipeline_options.images_scale = 2.0
         code_formula_options.scale = 3.0
 
+    if memory_profile == "low":
+        pipeline_options.queue_max_size = 10
+
     pipeline_options.code_formula_options = code_formula_options
     return pipeline_options
 
 
-def format_device_line(device: str, profile: str) -> str:
+def convert_pdf_document(converter: DocumentConverter, input_path: Path, chunk_size: int):
+    """Convert a PDF, optionally in page-range chunks to bound host RAM."""
+    page_count = get_pdf_page_count(input_path) if chunk_size else None
+    if not chunk_size or not page_count or page_count <= chunk_size:
+        return converter.convert(input_path).document
+
+    docs = []
+    for start in range(1, page_count + 1, chunk_size):
+        end = min(start + chunk_size - 1, page_count)
+        print(f"  Converting pages {start}-{end} of {page_count}...")
+        try:
+            res = converter.convert(input_path, page_range=(start, end))
+            docs.append(res.document)
+        except Exception as exc:
+            print(f"  WARNING: pages {start}-{end} failed: {exc}")
+        finally:
+            gc.collect()
+            release_cuda_memory()
+
+    if not docs:
+        raise RuntimeError("All page chunks failed to convert.")
+    if len(docs) == 1:
+        return docs[0]
+
+    from docling_core.types.doc.document import DoclingDocument
+    return DoclingDocument.concatenate(docs)
+
+
+def format_device_line(device: str, gpu_profile: str, memory_profile: str) -> str:
     """Format device/profile log line for PDF conversion."""
-    if device != "cuda":
-        return f"Using device: {device} for PDF processing"
+    parts = [f"Using device: {device}"]
+    parts.append(f"gpu profile: {gpu_profile}")
+    parts.append(f"memory profile: {memory_profile}")
 
     vram = detect_gpu_vram_gib()
     if vram is not None:
-        return f"Using device: {device} (memory profile: {profile}, VRAM: {vram:.1f} GiB) for PDF processing"
-    return f"Using device: {device} (memory profile: {profile}) for PDF processing"
+        parts.append(f"VRAM: {vram:.1f} GiB")
+
+    ram = detect_system_ram_gib()
+    if ram is not None:
+        parts.append(f"RAM: {ram:.1f} GiB")
+
+    return " (".join([parts[0], ", ".join(parts[1:])]) + ") for PDF processing"
 
 
-def convert_single_doc(input_path: Path, base_output_dir: Path, device: str, profile: str = "high"):
+def convert_single_doc(
+    input_path: Path,
+    base_output_dir: Path,
+    device: str,
+    gpu_profile: str = "high",
+    memory_profile: str = "high",
+    chunk_size: int = 0,
+):
     ext = input_path.suffix.lower()
     if ext not in FORMAT_MAP:
         print(f"Skipping '{input_path.name}': Unsupported format '{ext}'.")
@@ -231,39 +325,43 @@ def convert_single_doc(input_path: Path, base_output_dir: Path, device: str, pro
     print(f"\nInitializing conversion for {input_path.name} (Format: {input_format.name})...")
     
     if input_format == InputFormat.PDF:
-        print(format_device_line(device, profile))
-        pipeline_options = build_pdf_pipeline_options(device, profile)
+        print(format_device_line(device, gpu_profile, memory_profile))
+        if chunk_size:
+            page_count = get_pdf_page_count(input_path)
+            if page_count:
+                print(f"Chunked conversion: {chunk_size} pages/chunk ({page_count} pages total)")
+
+        pipeline_options = build_pdf_pipeline_options(device, gpu_profile, memory_profile)
 
         converter = DocumentConverter(
             allowed_formats=[InputFormat.PDF],
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
         )
     else:
-        # For DOCX and PPTX, no GPU pipeline is used/needed in the same way
         converter = DocumentConverter(
             allowed_formats=[input_format]
         )
     
-    # Convert
     print(f"Converting document {input_path.name}...")
-    result = converter.convert(input_path)
+    if input_format == InputFormat.PDF:
+        document = convert_pdf_document(converter, input_path, chunk_size)
+    else:
+        document = converter.convert(input_path).document
     
     from docling_core.types.doc.base import ImageRefMode
     
     print("Exporting to Markdown and saving images (auto-mapping references)...")
-    result.document.save_as_markdown(
+    document.save_as_markdown(
         filename=output_md,
         artifacts_dir=Path("images"),
         image_mode=ImageRefMode.REFERENCED
     )
     
-    # Antigravity IDE markdown previewer works best with explicit relative paths
     with open(output_md, "r", encoding="utf-8") as f:
         md_content = f.read()
         
     md_content = md_content.replace("](images/", "](./images/")
     
-    # Clean LaTeX spacing and handle fallback Unicode math
     print("Post-processing: cleaning LaTeX spacing and converting fallback Unicode math...")
     cleaned_content = clean_latex_spacing(md_content)
     final_content = fallback_unicode_math(cleaned_content)
@@ -276,8 +374,9 @@ def convert_single_doc(input_path: Path, base_output_dir: Path, device: str, pro
     print(f"- Image Directory: {image_dir}")
     if input_format == InputFormat.PDF:
         gpu_line = f"- GPU Utilization: {'Enabled (CUDA)' if device == 'cuda' else 'Disabled (CPU)'}"
-        if device == "cuda":
-            gpu_line += f" (memory profile: {profile})"
+        gpu_line += f" (gpu profile: {gpu_profile}, memory profile: {memory_profile})"
+        if chunk_size:
+            gpu_line += f", chunked: {chunk_size} pages/chunk"
         print(gpu_line)
     return True
 
@@ -288,18 +387,34 @@ def main():
     parser.add_argument("--output-dir", default="output", help="Directory to save the output (default: output/)")
     parser.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto", help="Device to use for PDF conversion (default: auto)")
     parser.add_argument(
+        "--gpu-profile",
+        choices=["auto", "low", "high"],
+        default="auto",
+        help="VRAM tuning for PDF model inference (default: auto; low when CUDA VRAM <= 4 GiB)",
+    )
+    parser.add_argument(
         "--memory-profile",
         choices=["auto", "low", "high"],
         default="auto",
-        help="Memory tuning for PDF conversion on GPU (default: auto; low when CUDA VRAM <= 4 GiB)",
+        help="Host RAM tuning / PDF chunking (default: auto; low when system RAM <= 8 GiB)",
+    )
+    parser.add_argument(
+        "--pdf-chunk-size",
+        type=int,
+        default=None,
+        help="Pages per chunk for low-memory PDF conversion (default: auto = 5 when memory profile low, else off; 0 disables)",
     )
     args = parser.parse_args()
 
     device = detect_device() if args.device == "auto" else args.device
-    profile = resolve_memory_profile(args.memory_profile, device)
-    if profile == "low":
+    gpu_profile = resolve_gpu_profile(args.gpu_profile, device)
+    memory_profile = resolve_memory_profile(args.memory_profile)
+    chunk_size = resolve_pdf_chunk_size(args.pdf_chunk_size, memory_profile)
+
+    if gpu_profile == "low":
+        apply_low_gpu_settings()
+    if memory_profile == "low":
         apply_low_memory_settings()
-        configure_code_formula_vlm_batch(profile)
 
     base_output_dir = Path(args.output_dir)
 
@@ -315,7 +430,9 @@ def main():
         for file_path in input_dir.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in FORMAT_MAP:
                 total_count += 1
-                if convert_single_doc(file_path, base_output_dir, device, profile):
+                if convert_single_doc(
+                    file_path, base_output_dir, device, gpu_profile, memory_profile, chunk_size
+                ):
                     success_count += 1
                 release_cuda_memory()
                     
@@ -329,7 +446,9 @@ def main():
         if not input_path.exists():
             print(f"Error: Input document '{args.input_document}' not found.")
             sys.exit(1)
-        convert_single_doc(input_path, base_output_dir, device, profile)
+        convert_single_doc(
+            input_path, base_output_dir, device, gpu_profile, memory_profile, chunk_size
+        )
         release_cuda_memory()
 
 if __name__ == "__main__":
