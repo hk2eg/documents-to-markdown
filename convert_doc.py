@@ -1,11 +1,15 @@
 import os
+
+# Must be set before docling/torch are imported (docling loads torch at import time).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import sys
 import re
 import argparse
 import unicodedata
 from pathlib import Path
 from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption, PowerpointFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions, CodeFormulaVlmOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, CodeFormulaVlmOptions, TableFormerMode
 from docling.datamodel.base_models import InputFormat
 
 def unicode_math_to_ascii(ch):
@@ -122,7 +126,93 @@ def detect_device():
         pass
     return "cpu"
 
-def convert_single_doc(input_path: Path, base_output_dir: Path, device: str):
+
+def detect_gpu_vram_gib():
+    """Return total CUDA VRAM in GiB, or None if unavailable."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    except Exception:
+        pass
+    return None
+
+
+def resolve_memory_profile(requested: str, device: str) -> str:
+    """Resolve auto/low/high memory profile from CLI and hardware."""
+    if requested != "auto":
+        return requested
+    vram = detect_gpu_vram_gib()
+    if device == "cuda" and vram is not None and vram <= 4.0:
+        return "low"
+    return "high"
+
+
+def apply_low_memory_settings():
+    """Apply global Docling settings for low-VRAM GPU conversion."""
+    from docling.datamodel.settings import settings
+
+    settings.perf.page_batch_size = 1
+    settings.perf.elements_batch_size = 1
+    settings.inference.compile_torch_models = False
+
+
+def configure_code_formula_vlm_batch(profile: str):
+    """Shrink CodeFormula VLM batch size for low-memory GPUs."""
+    if profile == "low":
+        from docling.models.stages.code_formula.code_formula_vlm_model import CodeFormulaVlmModel
+
+        CodeFormulaVlmModel.elements_batch_size = 1
+
+
+def release_cuda_memory():
+    """Free cached CUDA allocations between documents."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def build_pdf_pipeline_options(device: str, profile: str) -> PdfPipelineOptions:
+    """Build PdfPipelineOptions tuned for the requested memory profile."""
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.accelerator_options.device = device
+    pipeline_options.generate_picture_images = True
+    pipeline_options.do_formula_enrichment = True
+
+    code_formula_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
+
+    if profile == "low":
+        pipeline_options.images_scale = 1.0
+        pipeline_options.accelerator_options.num_threads = 2
+        pipeline_options.ocr_batch_size = 1
+        pipeline_options.layout_batch_size = 1
+        pipeline_options.table_batch_size = 1
+        pipeline_options.queue_max_size = 10
+        pipeline_options.table_structure_options.mode = TableFormerMode.FAST
+        code_formula_options.max_size = 768
+    else:
+        pipeline_options.images_scale = 2.0
+        code_formula_options.scale = 3.0
+
+    pipeline_options.code_formula_options = code_formula_options
+    return pipeline_options
+
+
+def format_device_line(device: str, profile: str) -> str:
+    """Format device/profile log line for PDF conversion."""
+    if device != "cuda":
+        return f"Using device: {device} for PDF processing"
+
+    vram = detect_gpu_vram_gib()
+    if vram is not None:
+        return f"Using device: {device} (memory profile: {profile}, VRAM: {vram:.1f} GiB) for PDF processing"
+    return f"Using device: {device} (memory profile: {profile}) for PDF processing"
+
+
+def convert_single_doc(input_path: Path, base_output_dir: Path, device: str, profile: str = "high"):
     ext = input_path.suffix.lower()
     if ext not in FORMAT_MAP:
         print(f"Skipping '{input_path.name}': Unsupported format '{ext}'.")
@@ -141,18 +231,8 @@ def convert_single_doc(input_path: Path, base_output_dir: Path, device: str):
     print(f"\nInitializing conversion for {input_path.name} (Format: {input_format.name})...")
     
     if input_format == InputFormat.PDF:
-        print(f"Using device: {device} for PDF processing")
-        # Configure CodeFormulaV2 preset and custom scale
-        code_formula_options = CodeFormulaVlmOptions.from_preset("codeformulav2")
-        code_formula_options.scale = 3.0  # Increased for higher-resolution crops
-
-        # Configure Pipeline Options for PDF
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.accelerator_options.device = device
-        pipeline_options.generate_picture_images = True
-        pipeline_options.images_scale = 2.0  # Overall pipeline scale
-        pipeline_options.do_formula_enrichment = True
-        pipeline_options.code_formula_options = code_formula_options
+        print(format_device_line(device, profile))
+        pipeline_options = build_pdf_pipeline_options(device, profile)
 
         converter = DocumentConverter(
             allowed_formats=[InputFormat.PDF],
@@ -195,7 +275,10 @@ def convert_single_doc(input_path: Path, base_output_dir: Path, device: str):
     print(f"- Output File: {output_md}")
     print(f"- Image Directory: {image_dir}")
     if input_format == InputFormat.PDF:
-        print(f"- GPU Utilization: {'Enabled (CUDA)' if device == 'cuda' else 'Disabled (CPU)'}")
+        gpu_line = f"- GPU Utilization: {'Enabled (CUDA)' if device == 'cuda' else 'Disabled (CPU)'}"
+        if device == "cuda":
+            gpu_line += f" (memory profile: {profile})"
+        print(gpu_line)
     return True
 
 def main():
@@ -204,9 +287,20 @@ def main():
     parser.add_argument("--batch", action="store_true", help="Convert all supported documents in the input/ directory")
     parser.add_argument("--output-dir", default="output", help="Directory to save the output (default: output/)")
     parser.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto", help="Device to use for PDF conversion (default: auto)")
+    parser.add_argument(
+        "--memory-profile",
+        choices=["auto", "low", "high"],
+        default="auto",
+        help="Memory tuning for PDF conversion on GPU (default: auto; low when CUDA VRAM <= 4 GiB)",
+    )
     args = parser.parse_args()
 
     device = detect_device() if args.device == "auto" else args.device
+    profile = resolve_memory_profile(args.memory_profile, device)
+    if profile == "low":
+        apply_low_memory_settings()
+        configure_code_formula_vlm_batch(profile)
+
     base_output_dir = Path(args.output_dir)
 
     if args.batch or args.input_document is None:
@@ -221,8 +315,9 @@ def main():
         for file_path in input_dir.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in FORMAT_MAP:
                 total_count += 1
-                if convert_single_doc(file_path, base_output_dir, device):
+                if convert_single_doc(file_path, base_output_dir, device, profile):
                     success_count += 1
+                release_cuda_memory()
                     
         if total_count == 0:
             print("No supported documents found in 'input/' directory.")
@@ -234,7 +329,8 @@ def main():
         if not input_path.exists():
             print(f"Error: Input document '{args.input_document}' not found.")
             sys.exit(1)
-        convert_single_doc(input_path, base_output_dir, device)
+        convert_single_doc(input_path, base_output_dir, device, profile)
+        release_cuda_memory()
 
 if __name__ == "__main__":
     main()

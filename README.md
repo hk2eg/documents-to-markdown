@@ -72,9 +72,14 @@ You have three ways to run the conversion:
 ### CLI Options (for advanced use)
 ```bash
 # You can also run the Python script directly if the venv is activated
-python convert_doc.py <input_document> [--output-dir DIR] [--device auto|cpu|cuda]
-python convert_doc.py --batch [--output-dir DIR] [--device auto|cpu|cuda]
+python convert_doc.py <input_document> [--output-dir DIR] [--device auto|cpu|cuda] [--memory-profile auto|low|high]
+python convert_doc.py --batch [--output-dir DIR] [--device auto|cpu|cuda] [--memory-profile auto|low|high]
 ```
+
+`--memory-profile` controls GPU memory tuning for PDF conversion:
+- **`auto`** (default): uses the **low** profile when CUDA VRAM is 4 GiB or less; otherwise **high**
+- **`low`**: smaller page/element batches, lower image scale, disabled torch compile — keeps GPU + formula enrichment but is slower
+- **`high`**: maximum quality settings for GPUs with sufficient VRAM
 
 ## Output Structure
 
