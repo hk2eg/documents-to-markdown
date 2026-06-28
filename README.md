@@ -4,9 +4,27 @@ A unified tool to convert PDF, DOCX, and PPTX documents into Markdown, complete 
 
 ## Setup
 
-First, initialize the environment and install dependencies. The setup script will automatically detect if an NVIDIA GPU is available and install the appropriate requirements (`requirements.txt` for GPU, `requirements-cpu.txt` for CPU-only).
+### Prerequisites
 
-### Linux / macOS
+Python must be installed on your system before running the setup scripts.
+
+* **Windows:**
+  Download and install Python 3.10+ from the official website: [python.org/downloads](https://www.python.org/downloads/).
+  > [!IMPORTANT]
+  > During installation on Windows, make sure to check the box **"Add python.exe to PATH"**.
+
+* **Linux (Debian / Ubuntu):**
+  Install Python 3, pip, and the venv package using your package manager:
+  ```bash
+  sudo apt update
+  sudo apt install -y python3 python3-pip python3-venv
+  ```
+
+### Installation
+
+Initialize the environment and install dependencies. The setup script will automatically detect if an NVIDIA GPU is available and install the appropriate requirements (`requirements.txt` for GPU, `requirements-cpu.txt` for CPU-only).
+
+#### Linux / macOS
 ```bash
 chmod +x setup_env.sh convert.sh
 ./setup_env.sh
