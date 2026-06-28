@@ -36,7 +36,7 @@ setup_env.bat
 ```
 
 > [!NOTE]
-> GPU users on Windows will use the fully-pinned `requirements.txt` which includes CUDA/cuDNN packages proven to work on the company's MX lineup NVIDIA GPUs.
+> GPU users on Windows will use the fully-pinned `requirements.txt` which includes CUDA/cuDNN packages proven to work on the MX lineup NVIDIA GPUs.
 
 ## Usage
 
