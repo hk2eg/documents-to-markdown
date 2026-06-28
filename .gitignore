@@ -19,18 +19,15 @@ Thumbs.db
 .DS_Store
 *:Zone.Identifier
 
-# Input documents (users bring their own — don't track large binaries)
-*.pdf
-*.docx
-*.pptx
-*.xlsx
-*.doc
-
-# Exception for the reference example document
-!CDM_Method_tool-calculate-emf-for-electricity-system.pdf
+# Input documents (gitignore the input folder contents by default)
+input/*
+# Exception: keep the CDM reference example
+!input/CDM_Method_tool-calculate-emf-for-electricity-system.pdf
 
 # Conversion output directories (regenerable artifacts)
-output/
+output/*
+# Exception: keep the CDM reference output
+!output/CDM_Method_tool-calculate-emf-for-electricity-system/
 
 # Model caches
 .cache/

@@ -22,22 +22,28 @@ setup_env.bat
 
 ## Usage
 
-Use the provided runner script to convert documents:
+You have three ways to run the conversion:
 
-### Linux / macOS
-```bash
-./convert.sh path/to/document.pdf
-```
-
-### Windows
-```cmd
-convert.bat path\to\document.pdf
-```
+1. **Batch Mode (Double-click)**
+   Place your documents (PDF, DOCX, PPTX) into the `input/` folder, then simply double-click `convert.bat` (Windows) or run `./convert.sh` (Linux/macOS) with no arguments. It will automatically convert everything in the `input/` folder.
+   
+2. **Drag-and-Drop (Windows)**
+   Drag a document file and drop it directly onto `convert.bat` in File Explorer.
+   
+3. **Command Line (Single file)**
+   ```bash
+   # Linux / macOS
+   ./convert.sh path/to/document.pdf
+   
+   # Windows
+   convert.bat path\to\document.pdf
+   ```
 
 ### CLI Options (for advanced use)
 ```bash
 # You can also run the Python script directly if the venv is activated
 python convert_doc.py <input_document> [--output-dir DIR] [--device auto|cpu|cuda]
+python convert_doc.py --batch [--output-dir DIR] [--device auto|cpu|cuda]
 ```
 
 ## Output Structure

@@ -122,25 +122,14 @@ def detect_device():
         pass
     return "cpu"
 
-def main():
-    parser = argparse.ArgumentParser(description="Convert documents to Markdown with images.")
-    parser.add_argument("input_document", help="Path to the input document (PDF, DOCX, PPTX)")
-    parser.add_argument("--output-dir", default="output", help="Directory to save the output (default: output/)")
-    parser.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto", help="Device to use for PDF conversion (default: auto)")
-    args = parser.parse_args()
-
-    input_path = Path(args.input_document)
-    if not input_path.exists():
-        print(f"Error: Input document '{args.input_document}' not found.")
-        sys.exit(1)
-
+def convert_single_doc(input_path: Path, base_output_dir: Path, device: str):
     ext = input_path.suffix.lower()
     if ext not in FORMAT_MAP:
-        print(f"Error: Unsupported format '{ext}'. Supported formats: {', '.join(FORMAT_MAP.keys())}")
-        sys.exit(1)
+        print(f"Skipping '{input_path.name}': Unsupported format '{ext}'.")
+        return False
 
     doc_name = input_path.stem
-    output_dir = Path(args.output_dir) / doc_name
+    output_dir = base_output_dir / doc_name
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_md = output_dir / f"{doc_name}.md"
@@ -148,9 +137,8 @@ def main():
     image_dir.mkdir(parents=True, exist_ok=True)
 
     input_format = FORMAT_MAP[ext]
-    device = detect_device() if args.device == "auto" else args.device
 
-    print(f"Initializing conversion for {args.input_document} (Format: {input_format.name})...")
+    print(f"\nInitializing conversion for {input_path.name} (Format: {input_format.name})...")
     
     if input_format == InputFormat.PDF:
         print(f"Using device: {device} for PDF processing")
@@ -177,7 +165,7 @@ def main():
         )
     
     # Convert
-    print("Converting document...")
+    print(f"Converting document {input_path.name}...")
     result = converter.convert(input_path)
     
     from docling_core.types.doc.base import ImageRefMode
@@ -203,11 +191,50 @@ def main():
     with open(output_md, "w", encoding="utf-8") as f:
         f.write(final_content)
             
-    print(f"\nConversion Summary:")
+    print(f"\nConversion Summary for {input_path.name}:")
     print(f"- Output File: {output_md}")
     print(f"- Image Directory: {image_dir}")
     if input_format == InputFormat.PDF:
         print(f"- GPU Utilization: {'Enabled (CUDA)' if device == 'cuda' else 'Disabled (CPU)'}")
+    return True
+
+def main():
+    parser = argparse.ArgumentParser(description="Convert documents to Markdown with images.")
+    parser.add_argument("input_document", nargs="?", default=None, help="Path to the input document (PDF, DOCX, PPTX)")
+    parser.add_argument("--batch", action="store_true", help="Convert all supported documents in the input/ directory")
+    parser.add_argument("--output-dir", default="output", help="Directory to save the output (default: output/)")
+    parser.add_argument("--device", choices=["cpu", "cuda", "auto"], default="auto", help="Device to use for PDF conversion (default: auto)")
+    args = parser.parse_args()
+
+    device = detect_device() if args.device == "auto" else args.device
+    base_output_dir = Path(args.output_dir)
+
+    if args.batch or args.input_document is None:
+        print("Running in batch mode...")
+        input_dir = Path("input")
+        if not input_dir.exists():
+            print("Error: 'input/' directory not found. Please create it and add documents.")
+            sys.exit(1)
+            
+        success_count = 0
+        total_count = 0
+        for file_path in input_dir.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in FORMAT_MAP:
+                total_count += 1
+                if convert_single_doc(file_path, base_output_dir, device):
+                    success_count += 1
+                    
+        if total_count == 0:
+            print("No supported documents found in 'input/' directory.")
+        else:
+            print(f"\nBatch Conversion Complete: {success_count}/{total_count} documents successfully converted.")
+            
+    else:
+        input_path = Path(args.input_document)
+        if not input_path.exists():
+            print(f"Error: Input document '{args.input_document}' not found.")
+            sys.exit(1)
+        convert_single_doc(input_path, base_output_dir, device)
 
 if __name__ == "__main__":
     main()
