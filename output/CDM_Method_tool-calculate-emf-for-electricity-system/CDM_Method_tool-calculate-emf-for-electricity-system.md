@@ -389,6 +389,8 @@ Equation (7)
 
 $$P L F _ { d e f a u l t , o f f - g r i d , y } = \left ( 1 - \frac { T _ { g r i d , y } } { 8 7 6 0 } \right ) \times 0 . 5$$
 
+$$\overline { 8 7 6 0 }$$
+
 Where:
 
 PLFdefault,off-grid,y
@@ -441,10 +443,10 @@ $$E F _ { g r i d , O m - a d j , y } = ( 1 - \lambda _ { y } ) \times \frac { \
 
 57. EFEL,m,y, EFEL,k,y, EGm,y and EGk,y should be determined using the same procedures as those for the parameters EFEL,m,y and EGm,y in Option A of the simple OM method above.
 58. If  off-grid  power  plants  are  included  in  the  operating  margin  emission  factor,  off-grid power plants should be treated as other power units m , where EGm,y and EFEL,m,y should be determined using approach outlined under the section 'Simple OM'.
-59. The parameter λ y is defined as follows:
-60. There are two approaches to determine lambda ( λ y ):
+59. The parameter  y is defined as follows:
+60. There are two approaches to determine lambda (  y ):
 61. Approach 1. Use default values of lambda from Table 1 appendix 2 based on the share of  electricity  generation  from  low-cost/must-run  in  total  generation  derived  using  1) average  of  the  five  most  recent  years,  or  2)  based  on  long-term  averages  for hydroelectricity production. Approach 1 can only be applied if the LASL is not less than one-third  of  the  HASL  in  a  project  electricity/  grid  system  demonstrated  based  on  the yearly data for the years used to determine the OM emission factor.
-62. Approach  2.  Lambda  (  y )  should  be  determined  by  applying  the  step  wise  procedure provided in appendix 3.
+62. Approach  2.  Lambda  (  y )  should  be  determined  by  applying  the  step  wise  procedure provided in appendix 3.
 
 | $\lambda y (per cent)$   | Equation (11)   |
 |------------------|-----------------|
@@ -471,9 +473,7 @@ EFEL,DD,h =
 
 CO2 emission factor for grid power units in the top of the dispatch order in hour h in year y (t CO2/MWh)
 
-EGPJ,y
-
-= Total electricity displaced by the project activity in year y (MWh)
+EGPJ,y = Total electricity displaced by the project activity in year y (MWh)
 
 h =
 
@@ -601,11 +601,11 @@ $$EF grid,CM,y = EF grid,OM,y  \times wOM + EF grid,BM,y  \times w BM$$
 
 Equation (16)
 
-| $EF grid,BM,y$   | =   | Build margin CO 2 emission factor in year y (t CO 2 /MWh)     |
-|----------------|-----|---------------------------------------------------------------|
-| $EF grid,OM,y$   | =   | Operating margin CO 2 emission factor in year y (t CO 2 /MWh) |
-| $w OM$           | =   | Weighting of operating margin emissions factor (per cent)     |
-| $w BM$           | =   | Weighting of build margin emissions factor (per cent)         |
+| $EF grid,BM,y$   | = Build margin CO 2 emission factor in year y (t CO 2 /MWh)     |
+|----------------|-----------------------------------------------------------------|
+| $EF grid,OM,y$   | = Operating margin CO 2 emission factor in year y (t CO 2 /MWh) |
+| $w OM$           | = Weighting of operating margin emissions factor (per cent)     |
+| $w BM$           | = Weighting of build margin emissions factor (per cent)         |
 
 86. The following default values should be used for wOM and wBM :
 2. (a) Wind and solar power generation project activities: wOM =  0.75  and wBM =  0.25 (owing  to  their  intermittent  and  non-dispatchable  nature)  for  the  first  crediting period and for subsequent crediting periods;
@@ -1304,7 +1304,7 @@ Figure 3. Step (iii) (b)
 
 ![Image](./images/image_000008_01db961e1ad359ff79ea8aa84fd4fccb5e17c9f04fe0555e6152f4f4f9d4036e.png)
 
-$$E G _ { c u m u l } = \sum _ { L + 1 } ^ { z } E G _ { Z - L } + E G _ { Z , L }$$
+$$E G _ { c u m u l } = \sum _ { L + 1 } ^ { z } E G _ { z - L } + E G _ { z , L }$$
 
 Equation (3)
 
@@ -1336,33 +1336,7 @@ $$E G _ { L C C _ { - } F F , y } = \sum _ { q = 1 } ^ { Q } E G _ { L C C _ { -
 
 $$E G _ { _ { G \_ F F , y } } = \sum _ { r = 1 } ^ { R } E G _ { _ { G \_ F F , r , y } }$$
 
-S
-
-
-
-
-
-GCC
-
-y
-
-FF
-
-GCC
-
-EG
-
-EG
-
-,
-
-\_
-
-s
-
-
-
-1
+$$E G _ { G C C _ { - } F F , y } = \sum _ { s = 1 } ^ { S } E G _ { G C C _ { - } F F , s , y }$$
 
 $$E G _ { R E , y } = \sum _ { v = 1 } ^ { V } E G _ { R E , v , y }$$
 
@@ -1376,17 +1350,7 @@ Equation (5)
 
 Equation (6)
 
-$$L U _ { L S _ { - } F F , y } \, ^ { | } \, L U _ { L C C _ { - } F F , y } \, ^ { | } \, L U _ { G C F , y } \, ^ { | } \, L U _ { G C C _ { - } F F , y } \, ^ { | } \, L U _ { R E , y }$$
-
-\_
-
-FF
-
-,
-
-,
-
-s y
+$$L U _ { L S _ { - } F F , y } \, ^ { | } L U _ { L C C _ { - } F F , y } \, ^ { | } L U _ { G C F , y } \, ^ { | } L U _ { G C C _ { - } F F , y } \, ^ { | } L U _ { R E , y }$$
 
 | EF LS FF      | =   | Emission factor of liquid or solid fossil fuel power plants supplying electricity to the isolated grid (t CO 2 /MWh) = take default value from case 1 paragraph 95 (b)                                                                                                                                                                                           |
 |---------------|-----|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
