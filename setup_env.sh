@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+on_error() {
+    echo "ERROR: Environment setup failed. See output above."
+    exit 1
+}
+trap on_error ERR
+
 echo "Creating virtual environment..."
 python3 -m venv venv
 source venv/bin/activate

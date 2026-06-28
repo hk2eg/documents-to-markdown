@@ -22,7 +22,14 @@ Python must be installed on your system before running the setup scripts.
 
 ### Installation
 
-Initialize the environment and install dependencies. The setup script will automatically detect if an NVIDIA GPU is available and install the appropriate requirements (`requirements.txt` for GPU, `requirements-cpu.txt` for CPU-only).
+Initialize the environment and install dependencies. The setup script will automatically detect if an NVIDIA GPU is available and install the appropriate requirements:
+
+| Platform | GPU detected | Requirements file |
+|----------|--------------|-------------------|
+| Linux / macOS | Yes | `requirements.txt` |
+| Linux / macOS | No | `requirements-cpu.txt` |
+| Windows | Yes | `requirements-windows.txt` |
+| Windows | No | `requirements-cpu.txt` |
 
 #### Linux / macOS
 ```bash
@@ -36,9 +43,12 @@ setup_env.bat
 ```
 
 > [!NOTE]
-> When an NVIDIA GPU is detected, setup installs the fully-pinned `requirements.txt`, which pulls CUDA-enabled PyTorch (`+cu118`) from [PyTorch's wheel index](https://download.pytorch.org/whl/cu118). This stack was validated on Windows with MX-series GPUs; Linux GPU installs use the same requirements file.
+> GPU installs pull CUDA-enabled PyTorch (`+cu118`) from [PyTorch's wheel index](https://download.pytorch.org/whl/cu118).
 >
-> Python **3.10–3.12** is recommended for the pinned GPU stack. If you hit compatibility errors on 3.13, recreate the venv with an older interpreter (e.g. `python3.12 -m venv venv`).
+> - **Windows:** `requirements-windows.txt` omits Linux-only NVIDIA wheels (`nvidia-cufile`, etc.); Windows PyTorch wheels bundle the CUDA runtime.
+> - **Linux:** `requirements.txt` includes the full pinned NVIDIA stack.
+>
+> Python **3.10–3.12** is recommended for the pinned GPU stack. If you hit compatibility errors on 3.13, recreate the venv with an older interpreter (e.g. `python3.12 -m venv venv` on Linux, or `py -3.12 -m venv venv` on Windows).
 
 ## Usage
 
